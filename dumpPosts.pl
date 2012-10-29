@@ -16,11 +16,8 @@ my $redis = Redis->new(server => "78.47.99.227:16777", encoding => undef);
 my $tree;
 do {
 	$tree = getTree($nextPageUrl);
-	#print "[$nextPageUrl] -- new iteration\n";
 	for my $a ($tree->look_down(class => "post_title")) {
-		#print "in for $a\n";
 		my $href = normalizeText($a->attr("href"));
-		#print "href -- $href\n";
 		my $title = normalizeText($a->as_text);
 
 		my %postData = getPostData($href);
@@ -86,20 +83,18 @@ sub getUnixDate {
 	my $dirtyDate = shift;
 	my $ret;
 
-	my $lang = Date::Language->new('Russian_koi8r');
+	my $lang = Date::Language->new('Russian');
 	my $firstPart;
 	if($dirtyDate =~ /^сегодня/) {
 		$firstPart = Encode::decode("koi8-r", $lang->time2str("%d %B %Y",time));
 	} elsif ($dirtyDate =~ /^вчера/) {
 		$firstPart = Encode::decode("koi8-r", $lang->time2str("%d %B %Y",time-86400));
 	} else {
-		$dirtyDate =~ /^(.+) /;
+		$dirtyDate =~ /^(.+) в /;
 		$firstPart = $1;
+		utf8::decode($firstPart);
 
-		# TODO: its realy dirty, rework later
-		$firstPart =~ /\s(\w)/;
-		my $uc = uc $1;
-		$firstPart =~ s/\s\w/ $uc/g;
+		$firstPart =~ s/ (\w)/ \U$1/g;
 	}
 	$dirtyDate =~ /(\d\d):(\d\d)$/;
 	$ret = "$firstPart $1:$2";

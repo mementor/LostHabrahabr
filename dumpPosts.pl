@@ -10,29 +10,39 @@ use HTML::TreeBuilder;
 use Date::Language;
 use Redis;
 
-my $url = "http://habrahabr.ru/posts/collective/all/";
+my $nextPageUrl = "http://habrahabr.ru/posts/collective/all/page1/";
 
-my $redis = Redis->new;
+my $redis = Redis->new(server => "78.47.99.227:16777", encoding => undef);
 my $tree;
+do {
+	$tree = getTree($nextPageUrl);
+	#print "[$nextPageUrl] -- new iteration\n";
+	for my $a ($tree->look_down(class => "post_title")) {
+		#print "in for $a\n";
+		my $href = normalizeText($a->attr("href"));
+		#print "href -- $href\n";
+		my $title = normalizeText($a->as_text);
 
-open(FILE, ">file.html");
-print FILE '
-<html><head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head>
-<body>';
+		my %postData = getPostData($href);
+		print "[$nextPageUrl] -- $href\n";
 
-$tree = getTree($url);
-for my $a ($tree->look_down(class => "post_title")) {
-	my $href = normalize($a->attr("href"));
-	my $title = normalize($a->as_text);
+		$href =~ /\/(\d+)\/$/;
+		my $id = $1;
+		if (! $redis->exists($id.":status")) {
+			$redis->set($id.":status", $postData{"status"});
+			$redis->set($id.":href", $href);
+			$redis->set($id.":html_post", $postData{"html_post"});
+			$redis->set($id.":published", $postData{"published"});
+		}
+	}
+	my $nextPage = $tree->look_down(id => "next_page");
+	if($nextPage) {
+		$nextPageUrl = "http://habrahabr.ru".$nextPage->attr("href");
+	} else {
+		$nextPageUrl = undef;
+	}
+} while ($nextPageUrl);
 
-	my %postData = getPostData($href);
-	print $href . " -- " . $postData{"published"} . "\n";
-
-	print FILE ($title."<br />".$postData{"html_post"}."<hr>");
-}
-
-print FILE '</body></html>';
 
 sub getPostData {
 	my $url = shift;
@@ -41,13 +51,13 @@ sub getPostData {
 	my $htmlPost = $postTree->look_down(class => "content html_format");
 	if ($htmlPost) {
 		$ret{"status"} = "live";
-		$ret{"html_post"} = normalize($htmlPost->as_HTML);
+		$ret{"html_post"} = normalizeText($htmlPost->as_HTML);
 		my $pubDate = $postTree->look_down(class => "published");
-		$ret{"published"} = getUnixDate(normalize($pubDate->as_text));
+		$ret{"published"} = getUnixDate(normalizeText($pubDate->as_text));
 	} else {
 		my @piss = $postTree->look_down(_tag => "p");
 		if ($piss[1]) {
-			normalize($piss[1]->as_text) =~ /^Автор переместил топик в черновики.$/ ? $ret{"status"} = "draft" : $ret{"status"} = "undef";
+			normalizeText($piss[1]->as_text) =~ /^Автор переместил топик в черновики.$/ ? $ret{"status"} = "draft" : $ret{"status"} = "undef";
 		} else {
 			$ret{"status"} = "error"
 		}
@@ -55,7 +65,7 @@ sub getPostData {
 	return %ret;
 }
 
-sub normalize {
+sub normalizeText {
 	my $str = shift;
 	HTML::Entities::decode_entities($str);
 	utf8::encode($str);
@@ -76,14 +86,14 @@ sub getUnixDate {
 	my $dirtyDate = shift;
 	my $ret;
 
-	my $lang = Date::Language->new('Russian');
+	my $lang = Date::Language->new('Russian_koi8r');
 	my $firstPart;
 	if($dirtyDate =~ /^сегодня/) {
 		$firstPart = Encode::decode("koi8-r", $lang->time2str("%d %B %Y",time));
 	} elsif ($dirtyDate =~ /^вчера/) {
 		$firstPart = Encode::decode("koi8-r", $lang->time2str("%d %B %Y",time-86400));
 	} else {
-		$dirtyDate =~ /^(.+) в /;
+		$dirtyDate =~ /^(.+) /;
 		$firstPart = $1;
 
 		# TODO: its realy dirty, rework later

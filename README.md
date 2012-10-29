@@ -1,3 +1,3 @@
 LostHabrahabr.ru
 
-couple of scripts for mirroring posts on http://habrahabr.ru
+couple of scripts for mirroring posts from http://habrahabr.ru
